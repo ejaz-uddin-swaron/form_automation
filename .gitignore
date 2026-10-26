@@ -1,0 +1,25 @@
+# Environment & Secrets (CRITICAL)
+.env
+*.env
+
+# Local Database & Output logs
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE & OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
