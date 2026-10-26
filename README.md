@@ -1,4 +1,4 @@
-# 🤖 AI-Driven Contact Form Submitter
+# AI-Driven Contact Form Submitter
 
 An autonomous Python agent that navigates to target company websites, discovers
 their contact forms, fills them in with your payload, and submits — all powered
