@@ -35,21 +35,30 @@ log = logging.getLogger("contact-agent")
 
 
 
-# ── Result dataclass ─────────────────────────────────────────
+# ── Data structures ──────────────────────────────────────────
+@dataclass
+class Target:
+    url: str
+    company: str = ""
+
+
 @dataclass
 class SubmissionResult:
     url: str
     status: str  # "submitted" | "captcha_blocked" | "no_form" | "error"
+    company: str = ""
     detail: Optional[str] = None
 
 
 # ── Prompt builder ───────────────────────────────────────────
-def _build_task_prompt(url: str, cfg: Settings) -> str:
+def _build_task_prompt(target: Target | str, cfg: Settings) -> str:
     s = cfg.sender
+    url = target.url if isinstance(target, Target) else target
+    company_context = f"\nTARGET COMPANY: {target.company}" if isinstance(target, Target) and target.company else ""
     return f"""\
 You are an autonomous web agent whose ONLY job is to submit a contact form.
 
-TARGET URL: {url}
+TARGET URL: {url}{company_context}
 
 ────────────────────────────────────────────
 STEP 1 – FIND THE CONTACT FORM
@@ -118,15 +127,18 @@ Examples:
 
 # ── Single-URL handler ───────────────────────────────────────
 async def submit_one(
-    url: str,
+    target: Target | str,
     cfg: Settings,
     db: ResultsDB,
     browser: Browser,
 ) -> SubmissionResult:
-    """Run the browser-use agent against a single URL."""
+    """Run the browser-use agent against a single target."""
+    if isinstance(target, str):
+        target = Target(url=target)
 
-    log.info("▶  Processing %s", url)
-    task_prompt = _build_task_prompt(url, cfg)
+    label = f"{target.company} ({target.url})" if target.company else target.url
+    log.info("▶  Processing %s", label)
+    task_prompt = _build_task_prompt(target, cfg)
 
     llm = ChatGoogle(
         model=cfg.llm_model,
@@ -151,20 +163,34 @@ async def submit_one(
     )
 
     try:
-        history = await agent.run()
+        history = await agent.run(max_steps=cfg.max_agent_steps)
         raw = history.final_result() or ""
 
         # Parse the STATUS=… line from the agent's answer
         status, detail = _parse_agent_output(raw)
-        result = SubmissionResult(url=url, status=status, detail=detail)
+        result = SubmissionResult(
+            url=target.url,
+            company=target.company,
+            status=status,
+            detail=detail,
+        )
 
     except Exception as exc:
-        log.exception("Agent crashed on %s", url)
-        result = SubmissionResult(url=url, status="error", detail=str(exc)[:300])
-
+        log.exception("Agent crashed on %s", target.url)
+        result = SubmissionResult(
+            url=target.url,
+            company=target.company,
+            status="error",
+            detail=str(exc)[:300],
+        )
 
     # Persist
-    db.upsert(url=result.url, status=result.status, notes=result.detail)
+    db.upsert(
+        url=result.url,
+        company=result.company,
+        status=result.status,
+        notes=result.detail,
+    )
     _log_result(result)
     return result
 
@@ -203,16 +229,18 @@ _STATUS_ICONS = {
 
 def _log_result(r: SubmissionResult) -> None:
     icon = _STATUS_ICONS.get(r.status, "❓")
-    log.info("%s  [%s]  %s  →  %s", icon, r.status.upper(), r.url, r.detail)
+    label = f"{r.company} [{r.url}]" if r.company else r.url
+    log.info("%s  [%s]  %s  →  %s", icon, r.status.upper(), label, r.detail)
 
 
 # ── Batch runner ─────────────────────────────────────────────
 async def run_batch(
-    urls: list[str],
+    targets: list[Target | str],
     cfg: Settings,
     db: ResultsDB,
+    skip_existing: bool = False,
 ) -> list[SubmissionResult]:
-    """Process every URL sequentially (one browser, fresh context each time)."""
+    """Process every target sequentially (one browser, fresh context each time)."""
 
     browser = Browser(
         headless=cfg.headless,
@@ -220,13 +248,21 @@ async def run_batch(
     )
 
     results: list[SubmissionResult] = []
-    for idx, url in enumerate(urls, 1):
-        log.info("━━━ [%d/%d] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", idx, len(urls))
-        result = await submit_one(url, cfg, db, browser)
+    total = len(targets)
+    for idx, item in enumerate(targets, 1):
+        target = item if isinstance(item, Target) else Target(url=item)
+        target_label = f"{target.company} ({target.url})" if target.company else target.url
+
+        if skip_existing and db.is_already_done(target.url):
+            log.info("⏩ [%d/%d] Skipping already processed: %s", idx, total, target_label)
+            continue
+
+        log.info("━━━ [%d/%d] %s ━━━", idx, total, target_label)
+        result = await submit_one(target, cfg, db, browser)
         results.append(result)
 
         # Short cooldown between sites to appear more human
-        if idx < len(urls):
+        if idx < total:
             await asyncio.sleep(2)
 
     try:

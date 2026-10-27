@@ -35,10 +35,14 @@ https://www.somecompany.com/contact,Direct contact page
 ### 4. Run
 
 ```bash
-python main.py               # process all URLs from targets.csv
-python main.py --url URL      # single URL
-python main.py --headless     # run without visible browser
-python main.py -v             # verbose/debug logging
+python main.py                                      # default: processes adu_companies_california.csv or targets.csv
+python main.py --csv adu_companies_california.csv   # use specific CSV
+python main.py --skip-existing                      # skip already submitted/processed URLs
+python main.py --limit 3                            # process first 3 targets only (useful for testing)
+python main.py --offset 5                           # skip first 5 targets and continue from 6th
+python main.py --url URL                            # submit to single URL
+python main.py --headless                           # run without visible browser
+python main.py -v                                   # verbose/debug logging
 ```
 
 ---

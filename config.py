@@ -55,23 +55,26 @@ class SenderPayload(BaseModel):
 
     @property
     def resolved_subject(self) -> str:
-        return self.subject_template.format(
-            first_name=self.first_name,
-            last_name=self.last_name,
-            company=self.company,
-        )
-
-    @property
-    def resolved_message(self) -> str:
-        return (
-            self.message_body
-            .replace("\\n", "\n")
-            .format(
+        try:
+            return self.subject_template.format(
                 first_name=self.first_name,
                 last_name=self.last_name,
                 company=self.company,
             )
-        )
+        except Exception:
+            return self.subject_template
+
+    @property
+    def resolved_message(self) -> str:
+        msg = self.message_body.replace("\\n", "\n")
+        try:
+            return msg.format(
+                first_name=self.first_name,
+                last_name=self.last_name,
+                company=self.company,
+            )
+        except Exception:
+            return msg
 
 
 class Settings(BaseModel):
